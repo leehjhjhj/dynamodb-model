@@ -54,18 +54,18 @@ class DynamoDBModel(Generic[T]):
         filter_expression: Optional[Dict[str, Any]] = None,
     ) -> list[T]:
         try:
-            key_condition = Key('partition_key').eq(partition_key)
+            key_condition = Key(self.partition_key_field).eq(partition_key)
             
             if sort_key_condition:
                 operator = sort_key_condition.get('operator', 'eq')
                 value = sort_key_condition['value']
                 
                 if operator == 'begins_with':
-                    key_condition = key_condition & Key('sort_key').begins_with(value)
+                    key_condition = key_condition & Key(self.sort_key_field).begins_with(value)
                 elif operator == 'between':
-                    key_condition = key_condition & Key('sort_key').between(*value)
+                    key_condition = key_condition & Key(self.sort_key_field).between(*value)
                 else:
-                    key_condition = key_condition & getattr(Key('sort_key'), operator)(value)
+                    key_condition = key_condition & getattr(Key(self.sort_key_field), operator)(value)
 
             query_args = {
                 'KeyConditionExpression': key_condition
