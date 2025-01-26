@@ -100,9 +100,9 @@ class DynamoDBModel(Generic[T]):
         update_data: Dict[str, Any] = None
     ) -> Optional[T]:
         try:
-            key_condition = {'partition_key': partition_key}
+            key_condition = {self.partition_key_field: partition_key}
             if sort_key:
-                key_condition['sort_key'] = sort_key
+                key_condition[self.sort_key_field] = sort_key
 
             update_expression = []
             expression_attribute_values = {}
@@ -112,7 +112,7 @@ class DynamoDBModel(Generic[T]):
                 placeholder = f":val_{key}"
                 attr_name = f"#{key}"
                 update_expression.append(f"{attr_name} = {placeholder}")
-                expression_attribute_values[placeholder] = value
+                expression_attribute_values[placeholder] = self._convert_datetime_to_str(value)
                 expression_attribute_names[attr_name] = key
 
             update_args = {
