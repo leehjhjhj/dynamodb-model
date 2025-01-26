@@ -132,9 +132,9 @@ class DynamoDBModel(Generic[T]):
 
     def delete(self, partition_key: str, sort_key: Optional[str] = None) -> None:
         try:
-            key_condition = {'partition_key': partition_key}
+            key_condition = {self.partition_key_field: partition_key}
             if sort_key:
-                key_condition['sort_key'] = sort_key
+                key_condition[self.sort_key_field] = sort_key
                 
             self.table.delete_item(Key=key_condition)
         except Exception as e:
