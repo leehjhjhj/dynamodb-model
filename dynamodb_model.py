@@ -26,6 +26,7 @@ class DynamoDBModel(Generic[T]):
         try:
             response = self.table.get_item(Key=key_condition)
             item = response.get('Item')
+            print(item)
             return self._item_to_model(item) if item else None
         except Exception as e:
             raise Exception(f"Failed to get item: {str(e)}")
@@ -132,7 +133,29 @@ class DynamoDBModel(Generic[T]):
             raise Exception(f"Failed to delete item: {str(e)}")
 
     def _model_to_item(self, model: T) -> Dict[str, Any]:
-        return {k: v for k, v in model.model_dump().items() if v is not None}
+        item: Dict[str, Any] = {}
+        for k, v in model.model_dump().items():
+            if v is not None:
+                converted_datetime = self._convert_datetime_to_str(v)
+                item[k] = converted_datetime
+        return item
     
     def _item_to_model(self, item: Dict[str, Any]) -> T:
+        for k, v in item.items():
+            converted_str = self._convert_str_to_datetime(v)
+            item[k] = converted_str
         return self.model_class(**item)
+    
+    def _convert_datetime_to_str(self, value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value
+
+    def _convert_str_to_datetime(self, value: Any, field_name: str) -> Any:
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError(f"Invalid datetime format for field {field_name}: {value}")
+        return value
+  
