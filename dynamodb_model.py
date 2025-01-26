@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, Type, TypeVar, Generic
+from contextlib import contextmanager
 from datetime import datetime
 from pydantic import BaseModel, Field
 import boto3
@@ -17,16 +18,23 @@ class DynamoDBModel(Generic[T]):
         self.model_class = model_class
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.table = self.dynamodb.Table(table_name)
+        self.partition_key_field = None
+        self.sort_key_field = None
+
+        for field_name, field in model_class.model_fields.items():
+            if field.alias == 'partition_key':
+                self.partition_key_field = field_name
+            elif field.alias == 'sort_key':
+                self.sort_key_field = field_name
 
     def get(self, partition_key: str, sort_key: Optional[str] = None) -> Optional[T]:
-        key_condition = {'partition_key': partition_key}
+        key_condition = {self.partition_key_field: partition_key}
         if sort_key:
-            key_condition['sort_key'] = sort_key
+            key_condition[self.sort_key_field] = sort_key
             
         try:
             response = self.table.get_item(Key=key_condition)
             item = response.get('Item')
-            print(item)
             return self._item_to_model(item) if item else None
         except Exception as e:
             raise Exception(f"Failed to get item: {str(e)}")
@@ -46,18 +54,18 @@ class DynamoDBModel(Generic[T]):
         filter_expression: Optional[Dict[str, Any]] = None,
     ) -> list[T]:
         try:
-            key_condition = Key('partition_key').eq(partition_key)
+            key_condition = Key(self.partition_key_field).eq(partition_key)
             
             if sort_key_condition:
                 operator = sort_key_condition.get('operator', 'eq')
                 value = sort_key_condition['value']
                 
                 if operator == 'begins_with':
-                    key_condition = key_condition & Key('sort_key').begins_with(value)
+                    key_condition = key_condition & Key(self.sort_key_field).begins_with(value)
                 elif operator == 'between':
-                    key_condition = key_condition & Key('sort_key').between(*value)
+                    key_condition = key_condition & Key(self.sort_key_field).between(*value)
                 else:
-                    key_condition = key_condition & getattr(Key('sort_key'), operator)(value)
+                    key_condition = key_condition & getattr(Key(self.sort_key_field), operator)(value)
 
             query_args = {
                 'KeyConditionExpression': key_condition
@@ -92,9 +100,9 @@ class DynamoDBModel(Generic[T]):
         update_data: Dict[str, Any] = None
     ) -> Optional[T]:
         try:
-            key_condition = {'partition_key': partition_key}
+            key_condition = {self.partition_key_field: partition_key}
             if sort_key:
-                key_condition['sort_key'] = sort_key
+                key_condition[self.sort_key_field] = sort_key
 
             update_expression = []
             expression_attribute_values = {}
@@ -104,7 +112,7 @@ class DynamoDBModel(Generic[T]):
                 placeholder = f":val_{key}"
                 attr_name = f"#{key}"
                 update_expression.append(f"{attr_name} = {placeholder}")
-                expression_attribute_values[placeholder] = value
+                expression_attribute_values[placeholder] = self._convert_datetime_to_str(value)
                 expression_attribute_names[attr_name] = key
 
             update_args = {
@@ -124,9 +132,9 @@ class DynamoDBModel(Generic[T]):
 
     def delete(self, partition_key: str, sort_key: Optional[str] = None) -> None:
         try:
-            key_condition = {'partition_key': partition_key}
+            key_condition = {self.partition_key_field: partition_key}
             if sort_key:
-                key_condition['sort_key'] = sort_key
+                key_condition[self.sort_key_field] = sort_key
                 
             self.table.delete_item(Key=key_condition)
         except Exception as e:
@@ -141,21 +149,9 @@ class DynamoDBModel(Generic[T]):
         return item
     
     def _item_to_model(self, item: Dict[str, Any]) -> T:
-        for k, v in item.items():
-            converted_str = self._convert_str_to_datetime(v)
-            item[k] = converted_str
         return self.model_class(**item)
     
     def _convert_datetime_to_str(self, value: Any) -> Any:
         if isinstance(value, datetime):
             return value.isoformat()
         return value
-
-    def _convert_str_to_datetime(self, value: Any, field_name: str) -> Any:
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value)
-            except ValueError:
-                raise ValueError(f"Invalid datetime format for field {field_name}: {value}")
-        return value
-  
