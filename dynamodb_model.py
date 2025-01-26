@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, Type, TypeVar, Generic
+from contextlib import contextmanager
 from datetime import datetime
 from pydantic import BaseModel, Field
 import boto3
@@ -17,16 +18,23 @@ class DynamoDBModel(Generic[T]):
         self.model_class = model_class
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.table = self.dynamodb.Table(table_name)
+        self.partition_key_field = None
+        self.sort_key_field = None
+
+        for field_name, field in model_class.model_fields.items():
+            if field.alias == 'partition_key':
+                self.partition_key_field = field_name
+            elif field.alias == 'sort_key':
+                self.sort_key_field = field_name
 
     def get(self, partition_key: str, sort_key: Optional[str] = None) -> Optional[T]:
-        key_condition = {'partition_key': partition_key}
+        key_condition = {self.partition_key_field: partition_key}
         if sort_key:
-            key_condition['sort_key'] = sort_key
+            key_condition[self.sort_key_field] = sort_key
             
         try:
             response = self.table.get_item(Key=key_condition)
             item = response.get('Item')
-            print(item)
             return self._item_to_model(item) if item else None
         except Exception as e:
             raise Exception(f"Failed to get item: {str(e)}")
@@ -141,21 +149,9 @@ class DynamoDBModel(Generic[T]):
         return item
     
     def _item_to_model(self, item: Dict[str, Any]) -> T:
-        for k, v in item.items():
-            converted_str = self._convert_str_to_datetime(v)
-            item[k] = converted_str
         return self.model_class(**item)
     
     def _convert_datetime_to_str(self, value: Any) -> Any:
         if isinstance(value, datetime):
             return value.isoformat()
         return value
-
-    def _convert_str_to_datetime(self, value: Any, field_name: str) -> Any:
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value)
-            except ValueError:
-                raise ValueError(f"Invalid datetime format for field {field_name}: {value}")
-        return value
-  
