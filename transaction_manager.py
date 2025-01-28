@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime
 
 class TransactionManager:
-    def __init__(self, region: str = "ap-northeast-2"):
+    def __init__(self, region: str):
         self.client = boto3.client('dynamodb', region_name=region)
         self._transaction_items: List[Dict[str, Any]] = []
 
@@ -54,13 +54,15 @@ class TransactionManager:
         raise ValueError(f"Unsupported type: {type(value)}")
 
     def _serialize_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """아이템 전체를 DynamoDB 형식으로 변환"""
+        """
+        아이템 전체를 DynamoDB 형식으로 변환
+        """
         return {k: self._serialize_value(v) for k, v in item.items()}
 
 class TransactionScope:
-    def __init__(self, *models):
+    def __init__(self, *models, region: str):
         self.models = models
-        self.region = "ap-northeast-2"
+        self.region = region
         
     @contextmanager
     def transaction(self):
