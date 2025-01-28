@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
 
+from transaction_manager import TransactionManager
+
 T = TypeVar('T', bound=BaseModel)
 
 class DynamoDBModel(Generic[T]):
@@ -26,6 +28,10 @@ class DynamoDBModel(Generic[T]):
                 self.partition_key_field = field_name
             elif field.alias == 'sort_key':
                 self.sort_key_field = field_name
+    
+    def set_transaction_manager(self, tx_manager: Optional[TransactionManager] = None):
+        self._transaction_manager = tx_manager
+        return self
 
     def get(self, partition_key: str, sort_key: Optional[str] = None) -> Optional[T]:
         key_condition = {self.partition_key_field: partition_key}
@@ -155,3 +161,81 @@ class DynamoDBModel(Generic[T]):
         if isinstance(value, datetime):
             return value.isoformat()
         return value
+
+    def transact_put(
+        self,
+        model: T,
+        tx_manager: Optional[TransactionManager] = None
+    ) -> None:
+        manager = tx_manager or self._transaction_manager
+        item = self._model_to_item(model)
+        manager.add_transaction_item({
+            'Put': {
+                'TableName': self.table_name,
+                'Item': item
+            }
+        })
+
+    def transact_update(
+        self,
+        partition_key: str,
+        update_data: Dict[str, Any],
+        sort_key: Optional[str] = None,
+        condition_expression: Optional[str] = None,
+        tx_manager: TransactionManager = None
+    ) -> None:
+        manager = tx_manager or self._transaction_manager
+
+        key = {self.partition_key_field: partition_key}
+        if sort_key:
+            key[self.sort_key_field] = sort_key
+
+        update_expression = []
+        expression_attribute_values = {}
+        expression_attribute_names = {}
+
+        for k, v in update_data.items():
+            placeholder = f":val_{k}"
+            attr_name = f"#{k}"
+            update_expression.append(f"{attr_name} = {placeholder}")
+            expression_attribute_values[placeholder] = self._convert_datetime_to_str(v)
+            expression_attribute_names[attr_name] = k
+
+        update_item = {
+            'Update': {
+                'TableName': self.table_name,
+                'Key': key,
+                'UpdateExpression': f"SET {', '.join(update_expression)}",
+                'ExpressionAttributeValues': expression_attribute_values,
+                'ExpressionAttributeNames': expression_attribute_names
+            }
+        }
+
+        if condition_expression:
+            update_item['Update']['ConditionExpression'] = condition_expression
+
+        manager.add_transaction_item(update_item)
+
+    def transact_delete(
+        self,
+        partition_key: str,
+        sort_key: Optional[str] = None,
+        condition_expression: Optional[str] = None,
+        tx_manager: TransactionManager = None
+    ) -> None:
+        manager = tx_manager or self._transaction_manager
+        key = {self.partition_key_field: partition_key}
+        if sort_key:
+            key[self.sort_key_field] = sort_key
+
+        delete_item = {
+            'Delete': {
+                'TableName': self.table_name,
+                'Key': key
+            }
+        }
+
+        if condition_expression:
+            delete_item['Delete']['ConditionExpression'] = condition_expression
+
+        manager.add_transaction_item(delete_item)
