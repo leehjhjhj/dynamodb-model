@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
 
-from transaction_manager import TransactionManager
+from src.transaction_manager import TransactionManager
 
 T = TypeVar('T', bound=BaseModel)
 
